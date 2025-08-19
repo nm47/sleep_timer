@@ -28,12 +28,12 @@ class VoiceStartActivity : Activity() {
                 val validMinutes = minutes.coerceIn(1L, 180L)
                 MINUTES.toMillis(validMinutes)
             } else {
-                // Default to 1 second if deep link has no valid minutes parameter
-                1000L
+                // Default to 2 hours if deep link has no valid minutes parameter
+                MINUTES.toMillis(120L)
             }
         } else {
-            // Default to 1 second if opened normally (not via deep link)
-            1000L
+            // Default to 2 hours if opened normally (not via deep link)
+            MINUTES.toMillis(120L)
         }
         
         // Start the timer using existing notification logic
