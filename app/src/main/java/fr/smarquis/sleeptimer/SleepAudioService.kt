@@ -10,9 +10,11 @@ import android.media.AudioAttributes.USAGE_MEDIA
 import android.media.AudioFocusRequest
 import android.media.AudioManager
 import android.media.AudioManager.AUDIOFOCUS_GAIN_TRANSIENT
-import android.media.session.MediaSessionManager
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import fr.smarquis.sleeptimer.SleepTileService.Companion.requestTileUpdate
+import fr.smarquis.sleeptimer.media.SessionController
 import java.util.concurrent.TimeUnit.SECONDS
 
 @Suppress("DEPRECATION")
@@ -28,27 +30,23 @@ class SleepAudioService : android.app.IntentService("SleepAudioService") {
     @Deprecated("Deprecated in Java")
     override fun onHandleIntent(intent: Intent?) {
         val audioManager = getSystemService(AudioManager::class.java) ?: return
-        val mediaSessionManager = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-            getSystemService(MediaSessionManager::class.java)
-        } else null
-
-        // 1. Directly pause active media sessions
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP && mediaSessionManager != null) {
-            try {
-                val activeSessions = mediaSessionManager.getActiveSessions(null)
-                activeSessions.forEach { controller ->
-                    try {
-                        controller.transportControls?.pause()
-                    } catch (e: Exception) {
-                        // Some controllers may not allow external pause
-                    }
+        
+        // 1. Try to pause active media sessions using NotificationListenerService
+        val sessionController = SessionController.instance
+        var paused = false
+        if (sessionController != null) {
+            paused = sessionController.pauseAllActiveSessions()
+            
+            // If sessions are still playing after initial pause, try aggressive stop
+            Handler(Looper.getMainLooper()).postDelayed({
+                if (sessionController.anySessionStillPlaying()) {
+                    sessionController.pauseAllActiveSessions(aggressiveStop = true)
                 }
-            } catch (e: SecurityException) {
-                // Need notification access permission for this to work
-            }
+            }, 600)
         }
 
-        // 2. Request audio focus to force other apps to pause/duck
+        // 2. Fallback: Request audio focus to force other apps to pause/duck
+        // This may be blocked on newer Android versions when screen is locked
         val attributes = AudioAttributes.Builder()
             .setUsage(USAGE_MEDIA)
             .setContentType(CONTENT_TYPE_MUSIC)
@@ -58,13 +56,15 @@ class SleepAudioService : android.app.IntentService("SleepAudioService") {
             .setOnAudioFocusChangeListener {}
             .setAcceptsDelayedFocusGain(false)
             .build()
-        audioManager.requestAudioFocus(focusRequest)
+        
+        try {
+            audioManager.requestAudioFocus(focusRequest)
+        } catch (e: Exception) {
+            // Audio focus request may be blocked by Android security
+        }
 
         // 3. Brief pause to let everything settle
         Thread.sleep(SETTLE_TIME_MILLIS)
-
-        // 4. Keep audio focus indefinitely to prevent apps from resuming
-        // Focus will be released when another app requests it or device restarts
 
         // Update tile
         requestTileUpdate()

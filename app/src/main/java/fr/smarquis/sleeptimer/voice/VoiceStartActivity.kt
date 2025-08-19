@@ -5,6 +5,7 @@ import android.net.Uri
 import android.os.Bundle
 import fr.smarquis.sleeptimer.SleepNotification.startTimer
 import fr.smarquis.sleeptimer.SleepTileService.Companion.requestTileUpdate
+import fr.smarquis.sleeptimer.media.NotificationPermissionHelper
 import java.util.concurrent.TimeUnit.MINUTES
 
 class VoiceStartActivity : Activity() {
@@ -17,6 +18,13 @@ class VoiceStartActivity : Activity() {
     }
 
     private fun handleIntent() {
+        // Check for notification access permission (needed for reliable media control)
+        if (!NotificationPermissionHelper.hasNotificationAccess(this)) {
+            // If permission not granted, request it and still start the timer
+            // Timer will work with audio focus fallback, but may be limited when screen is locked
+            NotificationPermissionHelper.requestNotificationAccess(this)
+        }
+        
         // Check if launched via deep link with custom duration
         val data: Uri? = intent.data
         val timeoutMillis = if (data != null) {
