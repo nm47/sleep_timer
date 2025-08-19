@@ -1,0 +1,45 @@
+package fr.smarquis.sleeptimer.voice
+
+import android.app.Activity
+import android.net.Uri
+import android.os.Bundle
+import fr.smarquis.sleeptimer.SleepNotification.startTimer
+import fr.smarquis.sleeptimer.SleepTileService.Companion.requestTileUpdate
+import java.util.concurrent.TimeUnit.MINUTES
+
+class VoiceStartActivity : Activity() {
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        
+        handleIntent()
+        finish()
+    }
+
+    private fun handleIntent() {
+        // Check if launched via deep link with custom duration
+        val data: Uri? = intent.data
+        val timeoutMillis = if (data != null) {
+            // Parse minutes parameter from deep link: sleeptimer://start?minutes=30
+            val minutesStr = data.getQueryParameter("minutes")
+            val minutes = minutesStr?.toLongOrNull()
+            if (minutes != null) {
+                // Validate minutes (clamp to 1-180)
+                val validMinutes = minutes.coerceIn(1L, 180L)
+                MINUTES.toMillis(validMinutes)
+            } else {
+                // Default to 1 second if deep link has no valid minutes parameter
+                1000L
+            }
+        } else {
+            // Default to 1 second if opened normally (not via deep link)
+            1000L
+        }
+        
+        // Start the timer using existing notification logic
+        startTimer(timeoutMillis)
+        
+        // Update the Quick Settings tile to reflect the active timer
+        requestTileUpdate()
+    }
+}

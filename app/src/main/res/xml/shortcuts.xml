@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
+
+    <capability android:name="custom.actions.intent.KILL_AUDIO">
+        <intent
+            android:targetPackage="fr.smarquis.sleeptimer"
+            android:targetClass="fr.smarquis.sleeptimer.voice.VoiceStartActivity">
+            <url-template android:value="sleeptimer://start?minutes={duration}" />
+            <parameter 
+                android:name="duration" 
+                android:key="duration"
+                android:mimeType="https://schema.org/Number" />
+        </intent>
+
+        <app:queryPatterns android:resource="@array/kill_audio_patterns" />
+    </capability>
+
+</shortcuts>

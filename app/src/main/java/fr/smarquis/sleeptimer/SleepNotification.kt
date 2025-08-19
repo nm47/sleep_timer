@@ -67,6 +67,8 @@ object SleepNotification {
 
     fun Context.toggle() = if (find() == null) show() else cancel()
 
+    fun Context.startTimer(timeoutMillis: Long) = show(timeoutMillis)
+
     private fun Context.cancel() = notificationManager()?.cancel(R.id.notification_id) ?: Unit
 
     private fun Context.update(timeout: Long) = find()?.let { it.`when` - currentTimeMillis() }?.let { if (it > -timeout) it + timeout else it }?.let { show(it) }

@@ -9,9 +9,9 @@ import android.media.AudioAttributes.CONTENT_TYPE_MUSIC
 import android.media.AudioAttributes.USAGE_MEDIA
 import android.media.AudioFocusRequest
 import android.media.AudioManager
-import android.media.AudioManager.ADJUST_LOWER
-import android.media.AudioManager.AUDIOFOCUS_GAIN
-import android.media.AudioManager.STREAM_MUSIC
+import android.media.AudioManager.AUDIOFOCUS_GAIN_TRANSIENT
+import android.media.session.MediaSessionManager
+import android.os.Build
 import fr.smarquis.sleeptimer.SleepTileService.Companion.requestTileUpdate
 import java.util.concurrent.TimeUnit.SECONDS
 
@@ -19,35 +19,55 @@ import java.util.concurrent.TimeUnit.SECONDS
 class SleepAudioService : android.app.IntentService("SleepAudioService") {
 
     companion object {
-        private val FADE_STEP_MILLIS = SECONDS.toMillis(1)
-        private val RESTORE_VOLUME_MILLIS = SECONDS.toMillis(2)
+        private val SETTLE_TIME_MILLIS = SECONDS.toMillis(2)
 
         private fun intent(context: Context) = Intent(context, SleepAudioService::class.java)
         fun pendingIntent(context: Context): PendingIntent? = PendingIntent.getService(context, 0, intent(context), FLAG_IMMUTABLE)
     }
 
     @Deprecated("Deprecated in Java")
-    override fun onHandleIntent(intent: Intent?) = getSystemService(AudioManager::class.java)?.run {
-        val volumeIndex = getStreamVolume(STREAM_MUSIC)
+    override fun onHandleIntent(intent: Intent?) {
+        val audioManager = getSystemService(AudioManager::class.java) ?: return
+        val mediaSessionManager = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            getSystemService(MediaSessionManager::class.java)
+        } else null
 
-        // fade out volume
-        do {
-            adjustStreamVolume(STREAM_MUSIC, ADJUST_LOWER, 0)
-            Thread.sleep(FADE_STEP_MILLIS)
-        } while (getStreamVolume(STREAM_MUSIC) > 0)
+        // 1. Directly pause active media sessions
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP && mediaSessionManager != null) {
+            try {
+                val activeSessions = mediaSessionManager.getActiveSessions(null)
+                activeSessions.forEach { controller ->
+                    try {
+                        controller.transportControls?.pause()
+                    } catch (e: Exception) {
+                        // Some controllers may not allow external pause
+                    }
+                }
+            } catch (e: SecurityException) {
+                // Need notification access permission for this to work
+            }
+        }
 
-        // request focus
-        val attributes = AudioAttributes.Builder().setUsage(USAGE_MEDIA).setContentType(CONTENT_TYPE_MUSIC).build()
-        val focusRequest = AudioFocusRequest.Builder(AUDIOFOCUS_GAIN).setAudioAttributes(attributes).setOnAudioFocusChangeListener {}.build()
-        requestAudioFocus(focusRequest)
+        // 2. Request audio focus to force other apps to pause/duck
+        val attributes = AudioAttributes.Builder()
+            .setUsage(USAGE_MEDIA)
+            .setContentType(CONTENT_TYPE_MUSIC)
+            .build()
+        val focusRequest = AudioFocusRequest.Builder(AUDIOFOCUS_GAIN_TRANSIENT)
+            .setAudioAttributes(attributes)
+            .setOnAudioFocusChangeListener {}
+            .setAcceptsDelayedFocusGain(false)
+            .build()
+        audioManager.requestAudioFocus(focusRequest)
 
-        // restore volume
-        Thread.sleep(RESTORE_VOLUME_MILLIS)
-        setStreamVolume(STREAM_MUSIC, volumeIndex, 0)
-        abandonAudioFocusRequest(focusRequest)
+        // 3. Brief pause to let everything settle
+        Thread.sleep(SETTLE_TIME_MILLIS)
 
-        // update tile
+        // 4. Keep audio focus indefinitely to prevent apps from resuming
+        // Focus will be released when another app requests it or device restarts
+
+        // Update tile
         requestTileUpdate()
-    } ?: Unit
+    }
 
 }

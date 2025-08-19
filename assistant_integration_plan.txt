@@ -1,0 +1,76 @@
+What we’re starting with
+
+The app today is a Quick Settings Tile only (no launcher activity) that fades/pauses playback when a timer ends; it relies on TileService, AudioManager focus/volume calls, and notification actions. 
+GitHub
+
+What makes Assistant control possible
+
+Google still supports App Actions on Android: you declare a capability in shortcuts.xml that maps a voice intent to a deep link (or extras) your app handles. You can use a custom intent (your own name + query patterns) when no Built-in Intent fits “sleep timer.” 
+
+There’s no BII for “sleep timer,” but you can publish a custom intent and pass a duration to a deep link your app handles. 
+
+Two caveats to keep in mind:
+
+App Actions config expects a launcher activity reference when wiring shortcuts.xml into the manifest, which this app currently lacks—so we’ll add a tiny launcher/handler activity. 
+
+On Android 12+, you can’t start a foreground service from the background arbitrarily; launching your activity via the deep link puts you in the foreground, which is the right moment to start/hand off to your foreground service cleanly. 
+
+Implementation plan (surgical changes)
+1) Add a minimal launcher/handler activity
+
+Create VoiceStartActivity (exported) whose sole job is to parse the deep link (sleeptimer://start?minutes=…), start/extend the timer (service or the existing logic), then finish().
+
+Manifest (add a real launcher entry so shortcuts.xml can be referenced):
+
+<activity android:name=".voice.VoiceStartActivity" android:exported="true">
+
+One <intent-filter> for the deep link (android.intent.action.VIEW, android:scheme="sleeptimer", host="start").
+
+Another with MAIN + LAUNCHER (the activity can immediately finish if opened by the user; we only need it as an anchor for App Actions). 
+
+Why: the upstream app has no launcher by design; App Actions docs wire shortcuts.xml via a launcher activity in the manifest. This keeps the UI minimal while satisfying the requirement. 
+
+2) Wire App Actions with a custom intent
+
+Add res/xml/shortcuts.xml declaring a capability with:
+
+android:name="com.yourpkg.intent.START_SLEEP_TIMER" 
+
+app:queryPatterns like:
+
+“start a sleep timer for {duration} minutes in Sleep Timer”
+
+“set sleep timer {duration} minutes in Sleep Timer”
+
+A parameter named duration (number or duration type) mapped into a deep-link URL template, e.g.
+sleeptimer://start?minutes={duration}
+
+Docs: custom intents use shortcuts.xml, accept parameters, and can populate deep-link named parameters into your URL template. 
+
+3) Handle the deep link in VoiceStartActivity
+
+Parse the minutes query param; validate (e.g., clamp to 1–180).
+
+Kick off (or update) the same foreground/notification logic the tile uses (reuse existing timer/service code). The repo shows the APIs the app already uses (Audio focus, volume, notification timeout), so you’re mostly calling into that flow. 
+GitHub
+
+4) Foreground-service compliance (Android 12+)
+
+Because Assistant opens your activity, you’re in the foreground, so it’s safe to start/upgrade your foreground service immediately. If you ever want silent background starts (no UI), you’ll hit ForegroundServiceStartNotAllowedException—avoid that by keeping the activity in front briefly (can be theme-less, transparent, or a 1-frame UI). 
+Android Developers
+
+5) Test the invocation
+
+Invoke with: “Hey Google, start sleep timer for 25 minutes in Sleep Timer.”
+Assistant parses the custom intent, fills {duration}, opens your activity via deep link, and your code starts the timer.
+
+You can iterate with the (still-documented) App Actions workflow; Google’s overview + codelab explain testing flows, even though tooling has been a moving target. 
+Android Developers
+Google Codelabs
+
+Why this works (and what to avoid)
+
+Works: Assistant → custom intent → deep link → your activity → foreground service → existing timer logic. 
+Android Developers
+
+Avoid: depending on BIIs like Open App Feature for numeric duration; it’s meant to navigate to features by name (inline inventory), not pass arbitrary values.
